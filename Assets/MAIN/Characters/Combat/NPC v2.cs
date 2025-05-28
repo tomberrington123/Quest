@@ -1,11 +1,9 @@
 using System.Collections;
-using System.Diagnostics;
 using UnityEngine;
+
 
 public class NPCv2 : MonoBehaviour
 {
-
-
     // ==== CONFIGURABLE VALUES ====
 
     // Speed at which the NPC moves when chasing or strafing
@@ -35,8 +33,7 @@ public class NPCv2 : MonoBehaviour
 
     // ==== STATE CONTROL ====
 
-    // Whether the NPC is currently executing a combat behaviour (e.g., strafe)
-    private bool playingCombatBehaviour = false;
+   
 
     // Gravity value applied if NPC is not grounded
     private float gravity = -9.81f;
@@ -44,8 +41,6 @@ public class NPCv2 : MonoBehaviour
     // Current vertical movement used for gravity calculation
     private float verticalVelocity = 0f;
 
-    // Whether the NPC is currently attacking
-    public bool isAttacking = false;
 
     // Whether NPC is in hit reaction
     private bool isHit = false;
@@ -55,7 +50,18 @@ public class NPCv2 : MonoBehaviour
     private int hitCounter = 0;      // A private integer to keep track of how many times the enemy has been hit
     private bool isDead = false;     // A private boolean to make sure the death logic only runs once
 
-
+    // ==== NPC STATES ====
+    private enum NPCState
+    {
+        Idle,
+        Chasing,
+        Combat,
+        Attacking,
+        Hit,
+        Dead
+    }
+    // Current state of the NPC
+    NPCState currentState = NPCState.Idle;  
 
 
     // ==== INITIAL SETUP ====
@@ -64,17 +70,20 @@ public class NPCv2 : MonoBehaviour
     {
         // Attempt to find the player based on Character script
         Character characterScript = FindObjectOfType<Character>();
-        if (characterScript != null) player = characterScript.transform;
+        try
+        {
+            player = Transform.FindFirstObjectByType<Character>().transform;
+        }
+        catch (System.Exception e)
+        {
+            Debug.Log("No player found, please assign manually.");
+            Debug.LogError(e.Message);
+        }
+
 
         // Get references to essential components
         characterController = GetComponent<CharacterController>();
         animator = GetComponent<Animator>();
-
-
-
-
-
-
     }
 
 
@@ -83,35 +92,31 @@ public class NPCv2 : MonoBehaviour
     void Update()
     {
 
+        // Exit early if player/controller not assigned or NPC is currently attacking
+        if (player == null || characterController == null || IsAttacking || isHit) return;
 
 
-
-
-
-
-
-
-
-
-            // Exit early if player/controller not assigned or NPC is currently attacking
-            if (player == null || characterController == null || isAttacking || isHit) return;
         // Calculate how far away the player is
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
         // Don't perform new behaviours if already doing one
-        if (!playingCombatBehaviour)
+        //H: I added the !isHit here, because it was on all the other checks, so it makes sense to have it here too.
+        if (isDead) return; // If dead, skip all logic
+
+
+        if (currentState != NPCState.Combat && !isHit)
         {
-            if (distanceToPlayer <= attackRange && !isHit)
+            if (distanceToPlayer <= attackRange)
             {
                 // Close enough to punch
                 StartCoroutine(PerformAttack());
             }
-            else if (distanceToPlayer <= combatRange && !isHit)
+            else if (distanceToPlayer <= combatRange)
             {
                 // In combat zone (e.g., for strafing)
                 StartCoroutine(GenerateRandomBehaviour());
             }
-            else if (distanceToPlayer <= chaseRange && !isHit)
+            else if (distanceToPlayer <= chaseRange)
             {
                 // Not in combat zone yet, keep chasing
                 MoveTowardsPlayer();
@@ -150,10 +155,7 @@ public class NPCv2 : MonoBehaviour
 
             // Play running animation
             animator.Play("RunForward");
-        } else
-        {
-            Vector3 moveDirection = Vector3.zero;
-        }
+        }       
     }
 
 
@@ -161,44 +163,62 @@ public class NPCv2 : MonoBehaviour
 
     public IEnumerator PerformAttack()
     {
-        if (!isHit)
-        {
-            // Lock out other actions during attack
-            isAttacking = true;
+        // Lock out other actions during attack
+        IsAttacking = true;
 
-            // Choose random punch animation
-            string attackAnim = Random.Range(0, 2) == 0 ? "PunchLeft" : "PunchRight";
-            animator.Play(attackAnim);
-            punch_L.SetActive(true);
-            punch_R.SetActive(true);
+        // Choose random punch animation
+        string attackAnim = Random.Range(0, 2) == 0 ? "PunchLeft" : "PunchRight";
+        animator.Play(attackAnim);
+        punch_L.SetActive(true);
+        punch_R.SetActive(true);
 
-            // Stand still while punching
-            yield return MoveOverTime(Vector3.zero, 1f, 0f);
+        // Stand still while punching
+        // TODO: This is saying "Move to nowhere at zero speed for 1 second"... which is kinda like doing nothing or waiting for 1 second??
+        yield return MoveOverTime(Vector3.zero, 1f, 0f);
 
-            // Re-enable actions
-            isAttacking = false;
-            punch_L.SetActive(false);
-            punch_R.SetActive(false);
+        // Re-enable actions
+        IsAttacking = false;
+        punch_L.SetActive(false);
+        punch_R.SetActive(false);
 
-            // Follow up with combat behaviour
-            StartCoroutine(GenerateRandomBehaviour());
-        }
-        else
-        {
-            Vector3 moveDirection = Vector3.zero;
-        }
+        // Follow up with combat behaviour
+        //H: i dont' quite get this code, here, what is it trying to do if on update the combat behavior is also enacted...
+        StartCoroutine(GenerateRandomBehaviour());
+
     }
 
 
     // ==== COMBAT MOVEMENT BEHAVIOURS (STRAFE, ADVANCE) ====
+    private enum CombatBehaviour
+    {
+        StrafeLeft,
+        StrafeRight,
+        RunBackward,
+        Idle,
+        RunForward,
+        RollBackward,
+        BlockingLoop
+    }
+    CombatBehaviour currentCombatBehaviour = CombatBehaviour.Idle;
+    private CombatBehaviour GetRandomCombatBehaviour()
+    {
+        CombatBehaviour[] values = (CombatBehaviour[])System.Enum.GetValues(typeof(CombatBehaviour));
+        int randomIndex = Random.Range(0, values.Length);
+        return values[randomIndex];
+    }
+
+    public bool IsAttacking {
+        get { return currentState == NPCState.Attacking; }
+        private set { currentState = NPCState.Attacking; }
+    }
 
     IEnumerator GenerateRandomBehaviour()
     {
         // Prevent overlapping behaviours
-        playingCombatBehaviour = true;
+        currentState = NPCState.Combat;
 
         // Pick a random behaviour to execute
-        int randomNumber = Random.Range(1, 8);
+        CombatBehaviour randomCombatBehavior = GetRandomCombatBehaviour();
         Vector3 moveDirection = Vector3.zero;
 
         // Direction toward player
@@ -209,35 +229,23 @@ public class NPCv2 : MonoBehaviour
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
         // Choose combat behaviour based on roll
-        switch (randomNumber)
-        {
-            case 1:
+        switch (randomCombatBehavior)
+        {                
+            case CombatBehaviour.StrafeLeft:
                 // Strafe left
-
-                    animator.Play("StrafeLeft");
+                animator.Play("StrafeLeft");
                 moveDirection = -transform.right;
-                    break;
-
-
-            case 2:
-                        // Strafe right
-
-                            animator.Play("StrafeRight");
-                            moveDirection = transform.right;
-                            break;
-                        
-
-                            
-
-            case 3:
-
+                break;
+            case CombatBehaviour.StrafeRight:
+                // Strafe right
+                animator.Play("StrafeRight");
+                moveDirection = transform.right;
+                break;
+            case CombatBehaviour.RunBackward:
                 animator.Play("RunBackward");
                 moveDirection = -transform.forward;
                 break;
-
-
-
-            case 4:
+            case CombatBehaviour.BlockingLoop:
                 /*
                 animator.Play("Idle");
                 moveDirection = Vector3.zero;
@@ -253,11 +261,12 @@ public class NPCv2 : MonoBehaviour
                 {
                     ;
                     // Too close, just attack again instead
+                    //H: let's heck on this, because it seems it will never be executed, because the distance is always less than attackRange
                     StartCoroutine(PerformAttack());
                     yield break;
                 }
                 break;
-            case 5:
+            case CombatBehaviour.RunForward:
                 if (distanceToPlayer > attackRange && !isHit)
                 {
                     // Move forward if not yet close enough to attack
@@ -266,29 +275,15 @@ public class NPCv2 : MonoBehaviour
                 }
                 else
                 {
-                    ;
                     // Too close, just attack again instead
-                    StartCoroutine(PerformAttack());
-                    yield break;
-                }
-                break;
-            case 6:
-                if (distanceToPlayer > attackRange && !isHit)
-                {
-                    // Move forward if not yet close enough to attack
-                    animator.Play("RunForward");
-                    moveDirection = transform.forward;
-                }
-                else
-                {
-;
-                    // Too close, just attack again instead
-                    StartCoroutine(PerformAttack());
-                    yield break;
-                }
-                break;
+                    //H: let's heck on this, because it seems it will never be executed, because the distance is always less than attackRange
 
-            case 7:
+                    StartCoroutine(PerformAttack());
+                    yield break;
+                }
+                break;
+          
+            case CombatBehaviour.RollBackward:
 
                 if (distanceToPlayer > attackRange && !isHit)
                 {
@@ -298,7 +293,6 @@ public class NPCv2 : MonoBehaviour
                 }
                 else
                 {
-                    ;
                     // Too close, just attack again instead
                     animator.Play("RollBackward");
                     moveDirection = -transform.forward;
@@ -313,7 +307,7 @@ public class NPCv2 : MonoBehaviour
         yield return MoveOverTime(moveDirection, 1f, 2f);
 
         // Allow new behaviours after finishing
-        playingCombatBehaviour = false;
+        currentState = NPCState.Combat;
     }
 
 
@@ -322,27 +316,23 @@ public class NPCv2 : MonoBehaviour
     IEnumerator MoveOverTime(Vector3 moveDirection, float duration, float speed)
     {
         float elapsedTime = 0f;
-        if (!isHit)
+
+
+        while (elapsedTime < duration)
         {
-            while (elapsedTime < duration)
-            {
-                // Keep facing the player throughout the movement
-                Vector3 updatedDirection = (player.position - transform.position).normalized;
-                updatedDirection.y = 0;
+            // Keep facing the player throughout the movement
+            Vector3 updatedDirection = (player.position - transform.position).normalized;
+            updatedDirection.y = 0;
 
-                // Smooth rotation
-                Quaternion targetRotation = Quaternion.LookRotation(updatedDirection);
-                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, 360 * Time.deltaTime);
+            // Smooth rotation
+            Quaternion targetRotation = Quaternion.LookRotation(updatedDirection);
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, 360 * Time.deltaTime);
 
-                // Move in chosen direction at specified speed
-                characterController.Move(moveDirection * speed * Time.deltaTime);
+            // Move in chosen direction at specified speed
+            characterController.Move(moveDirection * speed * Time.deltaTime);
 
-                elapsedTime += Time.deltaTime;
-                yield return null; // Wait for next frame
-            }
-        }
-        else
-        {
+            elapsedTime += Time.deltaTime;
+            yield return null; // Wait for next frame
         }
     }
 
@@ -372,15 +362,15 @@ public class NPCv2 : MonoBehaviour
         hitCounter++;
         if (hitCounter >= 3)         // Check if the hit counter has reached 3 or more
         {
-            
+
             animator.StopPlayback();
             StartCoroutine(Die()); // If so, start the IsDead coroutine to handle the death process
         }
         else
         {
             isHit = true;
-            isAttacking = false;
-            playingCombatBehaviour = false;
+            IsAttacking = false;
+            currentState = NPCState.Idle; // Set the current state to Idle to prevent further actions
 
             //AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
             //Vector3 moveDirection = Vector3.zero;
@@ -388,9 +378,9 @@ public class NPCv2 : MonoBehaviour
             //StopAllCoroutines();
             animator.StopPlayback();
             animator.Play("GetHit", 0, 0f);
-                          // Increment the hit counter by 1
-                                         // Wait for the duration of the hit animation (adjust as needed)
-                                         //Vector3 movement = Vector3.zero;
+            // Increment the hit counter by 1
+            // Wait for the duration of the hit animation (adjust as needed)
+            //Vector3 movement = Vector3.zero;
             yield return new WaitForSeconds(0.667f);
             // Resume normal behaviour
             isHit = false;
@@ -410,7 +400,7 @@ public class NPCv2 : MonoBehaviour
     {
         // Step 1: Check if the colliding object has the "Glove" tag
         if (other.gameObject == glove_L || other.gameObject == glove_R)
-            {
+        {
             animator.StopPlayback();
             StopAllCoroutines();
             Vector3 movement = Vector3.zero;
@@ -428,14 +418,14 @@ public class NPCv2 : MonoBehaviour
         isDead = true;               // Set the isDead flag to true to prevent further hits
         CapsuleCollider col = GetComponent<CapsuleCollider>();   // Disable CapsuleCollider
         col.enabled = false;
-        
+
         Vector3 movement = Vector3.zero;
         animator.Play("Death");
         yield return new WaitForSeconds(1f); // Wait for 1 second (can simulate death animation duration, etc.)
         UnityEngine.Debug.Log("dead");
         //animator.Play("Death");
-         //yield return new WaitForSeconds(1f); // Wait for 1 second (can simulate death animation duration, etc.)
-        
+        //yield return new WaitForSeconds(1f); // Wait for 1 second (can simulate death animation duration, etc.)
+
         //Destroy(gameObject);         // Remove the enemy GameObject from the scene
     }
 }

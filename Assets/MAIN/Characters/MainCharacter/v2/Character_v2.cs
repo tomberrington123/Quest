@@ -1,6 +1,6 @@
 using System;
 using System.Collections; // Needed for coroutines
-using System.Diagnostics;
+
 using UnityEngine; // Core Unity functionality
 using UnityEngine.SceneManagement; // Needed to reload the scene on death
 
@@ -74,7 +74,11 @@ public class Character_v2 : MonoBehaviour
         initialPosition = respawnPoint ? respawnPoint.transform.position : transform.position;
 
         // Now safe to get Animator from it
+
+        
+       
         upperAnimator = upperBodyObj.GetComponent<Animator>();
+        
     }
 
     // Called once per frame to update character state
@@ -200,8 +204,11 @@ public class Character_v2 : MonoBehaviour
     // Performs the actual punch attack
     IEnumerator DoPunch()
     {
+        
         HideBodyParts();
-        upperAnimator.SetBool(useLeftHand ? "PunchLeft" : "PunchRight", true);
+        //Hendrys: I am adding this here, because there could not be an "upperAnimator" at this point (if UpperbodyObj is not enabled)
+        if(upperAnimator)
+            upperAnimator.SetBool(useLeftHand ? "PunchLeft" : "PunchRight", true);
 
         yield return new WaitForSeconds(0.3f);
         (useLeftHand ? punch_L : punch_R).SetActive(true);
@@ -209,7 +216,8 @@ public class Character_v2 : MonoBehaviour
         yield return new WaitForSeconds(0.5f);
         (useLeftHand ? punch_L : punch_R).SetActive(false);
 
-        upperAnimator.SetBool(useLeftHand ? "PunchLeft" : "PunchRight", false);
+        if (upperAnimator) 
+            upperAnimator.SetBool(useLeftHand ? "PunchLeft" : "PunchRight", false);
         ShowBodyParts();
 
         isPunching = false;
@@ -219,8 +227,10 @@ public class Character_v2 : MonoBehaviour
     void StartBlock()
     {
         isBlocking = true;
+        
         animator.SetBool("isBlocking", true);
-        upperAnimator.SetBool("isBlocking", true);
+        if (upperAnimator)
+            upperAnimator.SetBool("isBlocking", true);
     }
 
     // Stops blocking state
@@ -228,7 +238,8 @@ public class Character_v2 : MonoBehaviour
     {
         isBlocking = false;
         animator.SetBool("isBlocking", false);
-        upperAnimator.SetBool("isBlocking", false);
+        if (upperAnimator)
+            upperAnimator.SetBool("isBlocking", false);
     }
 
     // Updates the idle animation when not moving

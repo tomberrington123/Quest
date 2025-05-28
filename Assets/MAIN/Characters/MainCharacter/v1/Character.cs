@@ -132,10 +132,10 @@ public class Character : MonoBehaviour
         //  Sync LowerBody to stay visually aligned with main character
         if (lowerBody != null)
         {
-            //  Keep it locked to this character’s position
+            //  Keep it locked to this characterï¿½s position
             lowerBody.position = transform.position;
 
-            //  Match this character’s facing direction
+            //  Match this characterï¿½s facing direction
             lowerBody.rotation = transform.rotation;
         }
         */
